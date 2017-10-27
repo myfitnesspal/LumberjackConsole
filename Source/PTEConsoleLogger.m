@@ -55,7 +55,7 @@
 
     // Filtering messages
     BOOL _filteringEnabled;
-    NSString * _currentSearchText;
+    NSArray <NSString *>* _currentSearchTerms;
     NSInteger _currentLogLevel;
     NSMutableArray * _filteredMessages;
     
@@ -112,6 +112,16 @@
 
 #pragma mark - Log formatter
 
+- (NSString *)timestampStringForDate:(NSDate *)date {
+    static NSDateFormatter *dateFormatter;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        dateFormatter = [[NSDateFormatter alloc] init];
+        dateFormatter.dateFormat = @"yyyy-MM-dd HH:mm:ss:SSS";
+    });
+    return [dateFormatter stringFromDate:date];
+}
+
 - (NSString *)formatLogMessage:(DDLogMessage *)logMessage
 {
     if (_logFormatter)
@@ -120,7 +130,8 @@
     }
     else
     {
-        return [NSString stringWithFormat:@"%@:%@ %@",
+        return [NSString stringWithFormat:@"%@\n%@:%@ %@",
+                [self timestampStringForDate:logMessage.timestamp],
                 logMessage.fileName,
                 @(logMessage->_line),
                 logMessage->_message];
@@ -160,10 +171,21 @@
 
 - (void)addMarker
 {
+    [self addMarkerWithName:nil];
+}
+
+- (void)addMarkerWithName:(NSString *)name
+{
     PTEMarkerLogMessage * marker = PTEMarkerLogMessage.new;
-    marker->_message = [NSString stringWithFormat:@"Marker %@", NSDate.date];
+    if (name != nil && name.length > 0){
+        marker->_message = [name uppercaseString];
+    }
+    else {
+        marker->_message = [NSString stringWithFormat:@"MARKER: %@", [self timestampStringForDate:[NSDate date]]];
+    }
     [self logMessage:marker];
 }
+
 
 #pragma mark - Handling new messages
 
@@ -192,7 +214,11 @@
     }
 }
 
-- (void)updateTableViewInConsoleQueue
+- (void)updateTableViewInConsoleQueue{
+  [self updateTableViewInConsoleQueueWithForceReload:NO];
+}
+
+- (void)updateTableViewInConsoleQueueWithForceReload:(BOOL)forceReload
 {
     _lastUpdate = NSDate.date;
     
@@ -220,7 +246,6 @@
     NSLogDebug(@"Messages to add: %@ keep: %@ remove: %@", @(itemsToInsertCount), @(itemsToKeepCount), @(itemsToRemoveCount));
     
     // Handle filtering
-    BOOL forceReload = NO;
     if (_filteringEnabled)
     {
         // Just swithed on filtering?
@@ -390,7 +415,7 @@ heightForRowAtIndexPath:(NSIndexPath *)indexPath
     dispatch_async(_consoleQueue, ^
                    {
                        // Trigger row height update
-                       [self updateTableViewInConsoleQueue];
+                       [self updateTableViewInConsoleQueueWithForceReload:NO];
                    });
     
     // Don't select the cell
@@ -533,25 +558,64 @@ forRowAtIndexPath:(NSIndexPath *)indexPath
 
 - (BOOL)messagePassesFilter:(DDLogMessage *)message
 {
-    // Message is a marker OR (Log flag matches AND (no search text OR contains search text))
-    return ([message isKindOfClass:[PTEMarkerLogMessage class]] ||
-            ((message->_flag & _currentLogLevel) &&
-             (_currentSearchText.length == 0 ||
-              [[self formatLogMessage:message] rangeOfString:_currentSearchText
-                                                     options:(NSCaseInsensitiveSearch |
-                                                              NSDiacriticInsensitiveSearch |
-                                                              NSWidthInsensitiveSearch)].location != NSNotFound)));
+  if ([message isKindOfClass:[PTEMarkerLogMessage class]] || _currentSearchTerms.count == 0){
+    return YES;
+  }
+  
+  for (NSString *term in _currentSearchTerms){
+    if ([[self formatLogMessage:message] rangeOfString:term
+                                               options:(NSCaseInsensitiveSearch |
+                                                        NSDiacriticInsensitiveSearch |
+                                                        NSWidthInsensitiveSearch)].location != NSNotFound){
+                                                 return YES;
+                                               }
+  }
+  
+  return NO;
 }
 
-#pragma mark - Search bar delegate
+- (void)copyToClipboard {
+    NSString *allMessagesString = @"";
 
-- (void)searchBarStateChanged
+    NSArray *messages = (_filteringEnabled ? _filteredMessages : _messages);
+    NSMutableArray *messageStringsArr = [NSMutableArray array];
+
+    for (NSInteger i=messages.count-1; i>= 0;i--){
+        DDLogMessage *logMessage = messages[i];
+        NSString *texToCopy = [self formatLogMessage:logMessage];
+        [messageStringsArr addObject:texToCopy];
+    }
+    allMessagesString = [messageStringsArr componentsJoinedByString:@"\n"];
+    UIPasteboard.generalPasteboard.string = allMessagesString;
+
+    NSLogInfo(@"Copied: %@", allMessagesString);
+}
+
+#pragma mark - Message Filtering
+
+- (void)setFilterText:(NSString *)filterText {
+    NSString *trimmedFilter = [filterText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    if (trimmedFilter.length == 0){
+        _currentSearchTerms = @[];
+    }
+    else {
+        _currentSearchTerms = [trimmedFilter componentsSeparatedByString:@" "];
+    }
+    [self filterChanged];
+}
+
+- (NSString *)filterText {
+    return [_currentSearchTerms componentsJoinedByString:@" "];
+}
+
+
+- (void)filterChanged
 {
     // The method is called from the main queue
     dispatch_async(_consoleQueue, ^
     {
         // Filtering enabled?
-        _filteringEnabled = (_currentSearchText.length > 0 ||        // Some text input
+        _filteringEnabled = (_currentSearchTerms.count > 0 ||        // Some text input
                              _currentLogLevel != DDLogLevelVerbose); // Or log level != verbose
         
         // Force reloading filtered messages
