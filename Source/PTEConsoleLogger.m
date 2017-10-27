@@ -608,7 +608,6 @@ forRowAtIndexPath:(NSIndexPath *)indexPath
     return [_currentSearchTerms componentsJoinedByString:@" "];
 }
 
-
 - (void)filterChanged
 {
     // The method is called from the main queue
@@ -641,18 +640,18 @@ selectedScopeButtonIndexDidChange:(NSInteger)selectedScope
         default : _currentLogLevel = DDLogLevelError;   break;
     }
     
-    [self searchBarStateChanged];
+    [self filterChanged];
 }
 
 - (void)searchBar:(UISearchBar *)searchBar
     textDidChange:(NSString *)searchText
 {
-    if ([_currentSearchText isEqualToString:searchText])
+    if ([[self filterText] isEqualToString:searchText])
         return;
     
-    _currentSearchText = searchBar.text;
+    [self setFilterText:searchBar.text];
     
-    [self searchBarStateChanged];
+    [self filterChanged];
 }
 
 - (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar
