@@ -20,7 +20,6 @@
 
 #import <CocoaLumberjack/CocoaLumberjack.h>
 
-@class PTEConsoleTableView;
 
 /**
  A DDLogger that displays log messages with a searcheable UITableView.
@@ -44,12 +43,14 @@
 @property (nonatomic)                   NSUInteger maxMessages;
 
 /// The UITableView used to display log messages.
-@property (weak, nonatomic)             PTEConsoleTableView * tableView;
+@property (weak, nonatomic)             UITableView * tableView;
 
 /// @name Log Formatters
 
 /// An optional formatter to be used for shortened log messages.
 @property (atomic, strong)              id<DDLogFormatter> shortLogFormatter;
+
+@property (nonatomic, strong)NSString *filterText;
 
 /// @name Methods
 
@@ -59,5 +60,9 @@
 /// Add a marker object to the console.
 - (void)addMarker;
 
+/// Add a marker object to the console with a name.
+- (void)addMarkerWithName:(NSString *)name;
+
+- (void)copyToClipboard;
 @end
 
